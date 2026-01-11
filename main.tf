@@ -8,8 +8,8 @@ resource "aws_lb" "ecs_alb" {
   name               = "ecs-fargate-alb"
   internal           = false # Set to true for internal ALB
   load_balancer_type = "application"
-  subnets            = ["subnet-0c5a82504f4edf254", "subnet-02dfac21a35f68e39"]
-  security_groups    = ["sg-0699da602dfed0552"] # Attach ALB security group
+  subnets            = ["subnet-public1", "subnet-public2"]
+  security_groups    = ["sg-alb"] # Attach ALB security group
 
   tags = {
     Name = "ecs-fargate-alb"
@@ -21,7 +21,7 @@ resource "aws_lb_target_group" "ecs_fargate_tg" {
   name        = "ecs-fargate-tg"
   port        = 80 # Your application's port
   protocol    = "HTTP"
-  vpc_id      = "vpc-02df15041ae6c516d"
+  vpc_id      = "vpc-id"
   target_type = "ip" # Crucial for ECS Fargate
 
   health_check {
@@ -113,8 +113,8 @@ resource "aws_ecs_service" "this" {
   enable_execute_command = true
 
   network_configuration {
-    subnets         = ["subnet-089f6b05f419311a7","subnet-011626f862159b2ec"]
-    security_groups = ["sg-011cf48936c0bcdb0"]
+    subnets         = ["subnet-private1","subnet-private2"]
+    security_groups = ["sg-ecs"]
     assign_public_ip = true
   }
 
@@ -128,18 +128,18 @@ resource "aws_ecs_service" "this" {
   deployment_maximum_percent         = 200
 }
 
-# AUTO SCALING (2 → 4 tasks)
-
+# Auto Scaling Target
 resource "aws_appautoscaling_target" "ecs" {
-  max_capacity       = 4
   min_capacity       = 1
+  max_capacity       = 4
   resource_id        = "service/${aws_ecs_cluster.this.name}/${aws_ecs_service.this.name}"
   scalable_dimension = "ecs:service:DesiredCount"
   service_namespace  = "ecs"
 }
 
-resource "aws_appautoscaling_policy" "cpu_scale_up" {
-  name               = "cpu-scale-up"
+# CPU-based Target Tracking (Scale Out + Scale In)
+resource "aws_appautoscaling_policy" "cpu_target_tracking" {
+  name               = "cpu-target-tracking"
   policy_type        = "TargetTrackingScaling"
   resource_id        = aws_appautoscaling_target.ecs.resource_id
   scalable_dimension = aws_appautoscaling_target.ecs.scalable_dimension
@@ -151,5 +151,8 @@ resource "aws_appautoscaling_policy" "cpu_scale_up" {
     predefined_metric_specification {
       predefined_metric_type = "ECSServiceAverageCPUUtilization"
     }
+
+    scale_in_cooldown  = 300
+    scale_out_cooldown = 60
   }
 }
